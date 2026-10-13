@@ -3,8 +3,12 @@ import time
 import requests
 
 URL = "http://localhost:8000/chat"
-NUM_REQUESTS = 30
-CONCURRENCY = 10
+NUM_REQUESTS = 250
+CONCURRENCY = 25
+
+session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=CONCURRENCY, pool_maxsize=CONCURRENCY)
+session.mount("http://", adapter)
 
 questions = [
     "What is Ray framework?",
@@ -18,7 +22,7 @@ questions = [
 def send_request(i):
     start = time.time()
     try:
-        r = requests.post(URL, json={"message": questions[i % len(questions)]}, timeout=60)
+        r = session.post(URL, json={"message": questions[i % len(questions)]}, timeout=60)
         elapsed = time.time() - start
         return i, r.status_code, elapsed
     except Exception as e:
