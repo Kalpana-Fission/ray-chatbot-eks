@@ -4,4 +4,4 @@ WORKDIR /home/ray
 
 COPY chatbot_serve.py .
 
-RUN pip install --no-cache-dir requests
+RUN pip install --no-cache-dir requests fastapi pydantic
