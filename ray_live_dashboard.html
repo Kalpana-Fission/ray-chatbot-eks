@@ -118,6 +118,35 @@
   .roles .step.l2 { border-color: var(--blue); }
   .roles .step.l3 { border-color: var(--purple); }
   .roles .missing { color: var(--red); font-size: 11px; }
+
+  .pod-box {
+    background: #0f1630; border: 1px solid var(--blue);
+    border-radius: 8px; padding: 12px 16px; min-width: 170px;
+  }
+  .pod-box .tag { font-size: 11px; color: var(--dim); }
+  .pod-box .label { font-weight: bold; font-size: 13px; margin-top: 4px; }
+  .pod-box .detail { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  .pod-box.flash { animation: flash-blue 1.2s ease-out; }
+  .ec2-node.flash { animation: flash-purple 1.2s ease-out; }
+  @keyframes flash-blue {
+    0% { box-shadow: 0 0 0 4px var(--blue); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  @keyframes flash-purple {
+    0% { box-shadow: 0 0 0 4px var(--purple); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+
+  .log-box {
+    background: #0a0e1f; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; height: 180px; overflow-y: auto;
+    font-family: Consolas, monospace; font-size: 11px;
+  }
+  .log-line { padding: 3px 0; border-bottom: 1px solid #1a2140; }
+  .log-line .t { color: var(--dim); margin-right: 8px; }
+  .log-line.replicas { color: var(--green); }
+  .log-line.pods { color: var(--blue); }
+  .log-line.nodes { color: var(--purple); }
 </style>
 </head>
 <body>
@@ -143,9 +172,21 @@
     </div>
 
     <div class="cluster-box">
-      <h2>Layer 2 + 3 &mdash; Kubernetes Pods on EC2 Nodes</h2>
-      <div class="sub">Pods scaled by KubeRay operator &middot; Nodes scaled by Cluster Autoscaler (reacts to Pending pods)</div>
+      <h2>Layer 2 &mdash; Kubernetes Pods</h2>
+      <div class="sub">Scaled by the KubeRay operator, reacting to Ray's internal resource requests</div>
+      <div class="nodes-grid" id="podsgrid"></div>
+    </div>
+
+    <div class="cluster-box">
+      <h2>Layer 3 &mdash; EC2 Nodes</h2>
+      <div class="sub">Scaled by Cluster Autoscaler, reacting to Pending pods it can't place</div>
       <div class="nodes-grid" id="nodesgrid"></div>
+    </div>
+
+    <div class="cluster-box">
+      <h2>Scaling Event Log</h2>
+      <div class="sub">Every change in replica / pod / node count, timestamped as it happens</div>
+      <div class="log-box" id="log"></div>
     </div>
 
     <div id="err"></div>
@@ -191,6 +232,8 @@
   const errBox = document.getElementById('err');
   const replicasEl = document.getElementById('replicas');
   const nodesEl = document.getElementById('nodesgrid');
+  const podsEl = document.getElementById('podsgrid');
+  const logEl = document.getElementById('log');
 
   const questions = [
     "What is Ray framework?",
@@ -199,6 +242,21 @@
     "What's the capital of France?",
     "Give me a motivational quote.",
   ];
+
+  let prevReplicaCount = null;
+  let prevPodCount = null;
+  let prevNodeCount = null;
+  let prevPodNames = new Set();
+  let prevNodeNames = new Set();
+
+  function logEvent(kind, text) {
+    const t = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.className = 'log-line ' + kind;
+    line.innerHTML = '<span class="t">[' + t + ']</span>' + text;
+    logEl.prepend(line);
+    while (logEl.children.length > 100) logEl.removeChild(logEl.lastChild);
+  }
 
   async function pollMetrics() {
     try {
@@ -212,6 +270,12 @@
       document.getElementById('m-completed').textContent = data.completed;
       document.getElementById('m-replicas').textContent = data.active_replicas;
 
+      if (prevReplicaCount !== null && data.active_replicas !== prevReplicaCount) {
+        const dir = data.active_replicas > prevReplicaCount ? 'UP' : 'DOWN';
+        logEvent('replicas', 'Layer 1 (Ray replicas) ' + dir + ': ' + prevReplicaCount + ' &rarr; ' + data.active_replicas);
+      }
+      prevReplicaCount = data.active_replicas;
+
       renderReplicas(data.replica_ids, data.ongoing);
     } catch (e) {
       dot.className = "status-dot err";
@@ -224,8 +288,23 @@
       const r = await fetch(BASE + "/nodes", { cache: "no-store" });
       const data = await r.json();
       if (data.error) return;
+
       document.getElementById('m-nodes').textContent = data.nodes.length;
       document.getElementById('m-pods').textContent = data.pods.length;
+
+      if (prevPodCount !== null && data.pods.length !== prevPodCount) {
+        const dir = data.pods.length > prevPodCount ? 'UP' : 'DOWN';
+        logEvent('pods', 'Layer 2 (K8s pods, KubeRay) ' + dir + ': ' + prevPodCount + ' &rarr; ' + data.pods.length);
+      }
+      prevPodCount = data.pods.length;
+
+      if (prevNodeCount !== null && data.nodes.length !== prevNodeCount) {
+        const dir = data.nodes.length > prevNodeCount ? 'UP' : 'DOWN';
+        logEvent('nodes', 'Layer 3 (EC2 nodes, Cluster Autoscaler) ' + dir + ': ' + prevNodeCount + ' &rarr; ' + data.nodes.length);
+      }
+      prevNodeCount = data.nodes.length;
+
+      renderPods(data.pods);
       renderNodes(data.nodes, data.pods);
     } catch (e) { /* surfaced via pollMetrics error state */ }
   }
@@ -244,18 +323,37 @@
     });
   }
 
+  function renderPods(pods) {
+    podsEl.innerHTML = "";
+    const currentNames = new Set(pods.map(p => p.name));
+    pods.forEach((p) => {
+      const isNew = !prevPodNames.has(p.name);
+      const div = document.createElement('div');
+      div.className = "pod-box" + (isNew ? " flash" : "");
+      div.innerHTML =
+        '<div class="tag">' + p.role + '</div>' +
+        '<div class="label">' + p.name.replace('ray-sentiment-cluster-', '') + '</div>' +
+        '<div class="detail">' + p.phase + ' on ' + (p.node || '?').split('.')[0] + '</div>';
+      podsEl.appendChild(div);
+    });
+    prevPodNames = currentNames;
+  }
+
   function renderNodes(nodes, pods) {
     nodesEl.innerHTML = "";
+    const currentNames = new Set(nodes.map(n => n.name));
     nodes.forEach((n) => {
       const podsOnNode = pods.filter(p => p.node === n.name);
+      const isNew = !prevNodeNames.has(n.name);
       const div = document.createElement('div');
-      div.className = "ec2-node" + (n.ready ? "" : " not-ready");
+      div.className = "ec2-node" + (n.ready ? "" : " not-ready") + (isNew ? " flash" : "");
       div.innerHTML =
         '<div class="tag">' + n.instance_type + '</div>' +
         '<div class="label">' + n.name.split('.')[0] + '</div>' +
         '<div class="detail">' + (n.ready ? 'Ready' : 'NotReady') + ' &middot; ' + podsOnNode.length + ' ray pod(s)</div>';
       nodesEl.appendChild(div);
     });
+    prevNodeNames = currentNames;
   }
 
   async function runLoadTest() {
