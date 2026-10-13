@@ -7,7 +7,16 @@ NVIDIA_MODEL = "meta/llama3-8b-instruct"
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 
-@serve.deployment(ray_actor_options={"num_cpus": 0.5})
+@serve.deployment(
+    ray_actor_options={"num_cpus": 0.5},
+    autoscaling_config={
+        "min_replicas": 1,
+        "max_replicas": 6,
+        "target_ongoing_requests": 2,
+        "upscale_delay_s": 5,
+        "downscale_delay_s": 30,
+    },
+)
 class ChatBot:
     def __init__(self):
         self.api_key = os.environ["NVIDIA_API_KEY"]

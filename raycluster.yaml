@@ -13,12 +13,18 @@ spec:
       spec:
         containers:
           - name: ray-head
-            image: rayproject/ray:2.52.0
+            image: 490711051211.dkr.ecr.us-east-1.amazonaws.com/ray-chatbot:latest
+            imagePullPolicy: Always
             env:
               - name: GEMINI_API_KEY
                 valueFrom:
                   secretKeyRef:
                     name: gemini-api-key
+                    key: api-key
+              - name: NVIDIA_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: nvidia-api-key
                     key: api-key
             resources:
               requests:
@@ -52,7 +58,19 @@ spec:
         spec:
           containers:
             - name: ray-worker
-              image: rayproject/ray:2.52.0
+              image: 490711051211.dkr.ecr.us-east-1.amazonaws.com/ray-chatbot:latest
+              imagePullPolicy: Always
+              env:
+                - name: GEMINI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: gemini-api-key
+                      key: api-key
+                - name: NVIDIA_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: nvidia-api-key
+                      key: api-key
               resources:
                 requests:
                   cpu: "1"
