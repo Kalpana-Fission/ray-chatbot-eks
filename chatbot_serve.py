@@ -6,6 +6,7 @@ import ray
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from kubernetes import client, config
 from pydantic import BaseModel
 from ray import serve
 
@@ -147,6 +148,11 @@ class ChatBot:
         self.api_key = os.environ["NVIDIA_API_KEY"]
         self.metrics = get_metrics_actor()
         self.replica_tag = serve.get_replica_context().replica_tag
+        try:
+            config.load_incluster_config()
+            self.k8s = client.CoreV1Api()
+        except Exception:
+            self.k8s = None
 
     @fastapi_app.get("/", response_class=HTMLResponse)
     async def home(self):
@@ -156,6 +162,50 @@ class ChatBot:
     async def metrics_endpoint(self):
         stats = await asyncio.to_thread(ray.get, self.metrics.get_stats.remote())
         return stats
+
+    @fastapi_app.get("/nodes")
+    async def nodes_endpoint(self):
+        if self.k8s is None:
+            return {"error": "k8s client not available"}
+
+        def list_cluster_state():
+            nodes = self.k8s.list_node()
+            pods = self.k8s.list_namespaced_pod(
+                namespace="default", label_selector="ray.io/cluster=ray-sentiment-cluster"
+            )
+            node_list = []
+            for n in nodes.items:
+                allocatable_cpu = n.status.allocatable.get("cpu", "?")
+                allocatable_mem = n.status.allocatable.get("memory", "?")
+                ready = any(
+                    c.type == "Ready" and c.status == "True" for c in (n.status.conditions or [])
+                )
+                node_list.append(
+                    {
+                        "name": n.metadata.name,
+                        "ready": ready,
+                        "allocatable_cpu": allocatable_cpu,
+                        "allocatable_memory": allocatable_mem,
+                        "instance_type": n.metadata.labels.get(
+                            "node.kubernetes.io/instance-type", "?"
+                        ),
+                    }
+                )
+
+            pod_list = []
+            for p in pods.items:
+                pod_list.append(
+                    {
+                        "name": p.metadata.name,
+                        "node": p.spec.node_name,
+                        "phase": p.status.phase,
+                        "role": p.metadata.labels.get("ray.io/node-type", "?"),
+                    }
+                )
+
+            return {"nodes": node_list, "pods": pod_list}
+
+        return await asyncio.to_thread(list_cluster_state)
 
     @fastapi_app.post("/chat")
     async def chat(self, req: ChatRequest):

@@ -14,6 +14,7 @@
     --blue: #3b82f6;
     --amber: #f59e0b;
     --red: #ef4444;
+    --purple: #a855f7;
   }
   * { box-sizing: border-box; }
   body {
@@ -50,28 +51,43 @@
 
   .cluster-box {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px;
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
   }
-  .cluster-box h2 { font-size: 15px; margin: 0 0 16px; color: var(--blue); }
+  .cluster-box h2 { font-size: 15px; margin: 0 0 4px; color: var(--blue); }
+  .cluster-box .sub { font-size: 11px; color: var(--dim); margin-bottom: 16px; }
 
-  .replicas { display: flex; flex-wrap: wrap; gap: 12px; min-height: 90px; }
+  .replicas, .nodes-grid { display: flex; flex-wrap: wrap; gap: 12px; min-height: 90px; }
   .replica {
     background: #0f1630; border: 1px solid var(--green);
     border-radius: 8px; padding: 12px 16px; min-width: 130px;
     transition: all 0.3s ease;
-    animation: pulse 1.5s ease-in-out infinite;
+    animation: pulse-green 1.5s ease-in-out infinite;
   }
   .replica.idle { border-color: var(--border); animation: none; }
   .replica .tag { font-size: 11px; color: var(--dim); }
   .replica .label { font-weight: bold; font-size: 13px; margin-top: 4px; }
-  @keyframes pulse {
+
+  .ec2-node {
+    background: #0f1630; border: 1px solid var(--purple);
+    border-radius: 8px; padding: 12px 16px; min-width: 170px;
+  }
+  .ec2-node.not-ready { border-color: var(--red); animation: pulse-red 1s ease-in-out infinite; }
+  .ec2-node .tag { font-size: 11px; color: var(--dim); }
+  .ec2-node .label { font-weight: bold; font-size: 13px; margin-top: 4px; }
+  .ec2-node .detail { font-size: 11px; color: var(--dim); margin-top: 4px; }
+
+  @keyframes pulse-green {
     0%, 100% { box-shadow: 0 0 0px var(--green); }
     50% { box-shadow: 0 0 14px var(--green); }
+  }
+  @keyframes pulse-red {
+    0%, 100% { box-shadow: 0 0 0px var(--red); }
+    50% { box-shadow: 0 0 14px var(--red); }
   }
 
   .panel {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 20px; height: fit-content;
+    border-radius: 12px; padding: 20px; height: fit-content; margin-bottom: 20px;
   }
   .panel h2 { font-size: 15px; margin: 0 0 16px; }
   .metric { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
@@ -81,6 +97,7 @@
   .metric .val.completed { color: var(--green); }
   .metric .val.waiting { color: var(--red); }
   .metric .val.replicas { color: var(--blue); }
+  .metric .val.nodes { color: var(--purple); }
 
   .controls { margin-top: 20px; }
   .controls input { width: 60px; background: #0f1630; border: 1px solid var(--border); color: var(--text); padding: 6px; border-radius: 6px; }
@@ -93,11 +110,19 @@
 
   .note { font-size: 11px; color: var(--dim); margin-top: 16px; line-height: 1.5; }
   #err { color: var(--red); font-size: 12px; margin-top: 10px; }
+
+  .roles { font-size: 12px; line-height: 1.7; }
+  .roles .step { margin-bottom: 10px; padding-left: 14px; border-left: 2px solid var(--border); }
+  .roles .step b { color: var(--text); }
+  .roles .step.l1 { border-color: var(--green); }
+  .roles .step.l2 { border-color: var(--blue); }
+  .roles .step.l3 { border-color: var(--purple); }
+  .roles .missing { color: var(--red); font-size: 11px; }
 </style>
 </head>
 <body>
 
-<h1><span id="dot" class="status-dot"></span>Ray Cluster Live Dashboard &mdash; Chatbot Autoscaling</h1>
+<h1><span id="dot" class="status-dot"></span>Ray Cluster Live Dashboard &mdash; Chatbot Autoscaling (3 Layers)</h1>
 
 <div class="layout">
   <div>
@@ -112,30 +137,50 @@
     </div>
 
     <div class="cluster-box">
-      <h2>Active Ray Serve Replicas</h2>
+      <h2>Layer 1 &mdash; Ray Serve Replicas (task/actor level)</h2>
+      <div class="sub">Scaled by Ray Serve's own autoscaler, based on ongoing requests per replica</div>
       <div class="replicas" id="replicas"></div>
+    </div>
+
+    <div class="cluster-box">
+      <h2>Layer 2 + 3 &mdash; Kubernetes Pods on EC2 Nodes</h2>
+      <div class="sub">Pods scaled by KubeRay operator &middot; Nodes scaled by Cluster Autoscaler (reacts to Pending pods)</div>
+      <div class="nodes-grid" id="nodesgrid"></div>
     </div>
 
     <div id="err"></div>
   </div>
 
-  <div class="panel">
-    <h2>Live Metrics</h2>
-    <div class="metric"><span>Ongoing requests</span><span class="val ongoing" id="m-ongoing">0</span></div>
-    <div class="metric"><span>Waiting (queued)</span><span class="val waiting" id="m-waiting">0</span></div>
-    <div class="metric"><span>Completed</span><span class="val completed" id="m-completed">0</span></div>
-    <div class="metric"><span>Active replicas</span><span class="val replicas" id="m-replicas">0</span></div>
+  <div>
+    <div class="panel">
+      <h2>Live Metrics</h2>
+      <div class="metric"><span>Ongoing requests</span><span class="val ongoing" id="m-ongoing">0</span></div>
+      <div class="metric"><span>Waiting (queued)</span><span class="val waiting" id="m-waiting">0</span></div>
+      <div class="metric"><span>Completed</span><span class="val completed" id="m-completed">0</span></div>
+      <div class="metric"><span>Active replicas</span><span class="val replicas" id="m-replicas">0</span></div>
+      <div class="metric"><span>EC2 nodes</span><span class="val nodes" id="m-nodes">0</span></div>
+      <div class="metric"><span>Ray pods</span><span class="val nodes" id="m-pods">0</span></div>
 
-    <div class="controls">
-      <label>Requests: <input id="n-requests" type="number" value="20" min="1" max="100" /></label>
-      <label style="margin-left:10px;">Concurrency: <input id="n-concurrency" type="number" value="10" min="1" max="30" /></label>
-      <button id="run-btn" onclick="runLoadTest()">Run Load Test</button>
+      <div class="controls">
+        <label>Requests: <input id="n-requests" type="number" value="20" min="1" max="100" /></label>
+        <label style="margin-left:10px;">Concurrency: <input id="n-concurrency" type="number" value="10" min="1" max="30" /></label>
+        <button id="run-btn" onclick="runLoadTest()">Run Load Test</button>
+      </div>
+
+      <div class="note">
+        Polls <code>/metrics</code> + <code>/nodes</code> on your port-forwarded app.
+        "Run Load Test" fires real concurrent requests straight from this page.
+      </div>
     </div>
 
-    <div class="note">
-      Polls <code>/metrics</code> on your port-forwarded Ray Serve app every second.
-      Each replica box lights up while actively handling requests and fades after 20s idle.
-      "Run Load Test" fires real requests straight from this page to your chatbot.
+    <div class="panel">
+      <h2>Who does what</h2>
+      <div class="roles">
+        <div class="step l1"><b>Ray Serve autoscaler</b> (in head pod)<br>Watches ongoing requests per replica &rarr; decides replica count</div>
+        <div class="step l2"><b>KubeRay operator</b><br>Watches RayCluster CR &rarr; creates/deletes Ray worker Pods to match</div>
+        <div class="step l3"><b>Cluster Autoscaler</b> (installed)<br>Watches for Pending pods &rarr; resizes the EC2 Auto Scaling Group</div>
+        <div class="step"><b>KEDA</b> <span class="missing">(not used here)</span><br>Generic pod autoscaler driven by external metrics (queue depth, HTTP rate). Works at pod level only &mdash; no Ray-aware task/actor placement like KubeRay has.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -145,6 +190,7 @@
   const dot = document.getElementById('dot');
   const errBox = document.getElementById('err');
   const replicasEl = document.getElementById('replicas');
+  const nodesEl = document.getElementById('nodesgrid');
 
   const questions = [
     "What is Ray framework?",
@@ -154,7 +200,7 @@
     "Give me a motivational quote.",
   ];
 
-  async function poll() {
+  async function pollMetrics() {
     try {
       const r = await fetch(BASE + "/metrics", { cache: "no-store" });
       const data = await r.json();
@@ -173,17 +219,42 @@
     }
   }
 
+  async function pollNodes() {
+    try {
+      const r = await fetch(BASE + "/nodes", { cache: "no-store" });
+      const data = await r.json();
+      if (data.error) return;
+      document.getElementById('m-nodes').textContent = data.nodes.length;
+      document.getElementById('m-pods').textContent = data.pods.length;
+      renderNodes(data.nodes, data.pods);
+    } catch (e) { /* surfaced via pollMetrics error state */ }
+  }
+
   function renderReplicas(ids, ongoing) {
     replicasEl.innerHTML = "";
     if (!ids || ids.length === 0) {
       replicasEl.innerHTML = '<div class="replica idle"><div class="tag">no active replicas</div><div class="label">waiting for traffic</div></div>';
       return;
     }
-    ids.forEach((id, i) => {
+    ids.forEach((id) => {
       const div = document.createElement('div');
       div.className = "replica" + (ongoing > 0 ? "" : " idle");
       div.innerHTML = '<div class="tag">replica</div><div class="label">' + id.slice(0, 12) + '</div>';
       replicasEl.appendChild(div);
+    });
+  }
+
+  function renderNodes(nodes, pods) {
+    nodesEl.innerHTML = "";
+    nodes.forEach((n) => {
+      const podsOnNode = pods.filter(p => p.node === n.name);
+      const div = document.createElement('div');
+      div.className = "ec2-node" + (n.ready ? "" : " not-ready");
+      div.innerHTML =
+        '<div class="tag">' + n.instance_type + '</div>' +
+        '<div class="label">' + n.name.split('.')[0] + '</div>' +
+        '<div class="detail">' + (n.ready ? 'Ready' : 'NotReady') + ' &middot; ' + podsOnNode.length + ' ray pod(s)</div>';
+      nodesEl.appendChild(div);
     });
   }
 
@@ -214,8 +285,10 @@
     btn.textContent = "Run Load Test";
   }
 
-  poll();
-  setInterval(poll, 1000);
+  pollMetrics();
+  pollNodes();
+  setInterval(pollMetrics, 1000);
+  setInterval(pollNodes, 3000);
 </script>
 
 </body>

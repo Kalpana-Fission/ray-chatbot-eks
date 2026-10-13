@@ -1,0 +1,21 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ray-cluster-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ray-cluster-reader-binding
+subjects:
+  - kind: ServiceAccount
+    name: ray-sentiment-cluster
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: ray-cluster-reader
+  apiGroup: rbac.authorization.k8s.io
