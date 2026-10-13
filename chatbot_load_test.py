@@ -3,8 +3,8 @@ import time
 import requests
 
 URL = "http://localhost:8000/chat"
-NUM_REQUESTS = 250
-CONCURRENCY = 25
+NUM_REQUESTS = 500
+CONCURRENCY = 70
 
 session = requests.Session()
 adapter = requests.adapters.HTTPAdapter(pool_connections=CONCURRENCY, pool_maxsize=CONCURRENCY)
