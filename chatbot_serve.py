@@ -1,3 +1,4 @@
+import asyncio
 import os
 import requests
 from starlette.requests import Request
@@ -32,8 +33,8 @@ class ChatBot:
             + [{"role": "user", "content": message}]
         )
 
-        try:
-            resp = requests.post(
+        def call_nvidia():
+            return requests.post(
                 NVIDIA_URL,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -49,6 +50,9 @@ class ChatBot:
                 },
                 timeout=90,
             )
+
+        try:
+            resp = await asyncio.to_thread(call_nvidia)
         except requests.exceptions.Timeout:
             return {"error": "timeout", "detail": "NVIDIA API did not respond in time"}
 
