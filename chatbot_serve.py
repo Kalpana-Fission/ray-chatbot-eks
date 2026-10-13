@@ -32,22 +32,25 @@ class ChatBot:
             + [{"role": "user", "content": message}]
         )
 
-        resp = requests.post(
-            NVIDIA_URL,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": NVIDIA_MODEL,
-                "messages": messages,
-                "temperature": 0.5,
-                "top_p": 1,
-                "max_tokens": 1024,
-                "stream": False,
-            },
-            timeout=30,
-        )
+        try:
+            resp = requests.post(
+                NVIDIA_URL,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": NVIDIA_MODEL,
+                    "messages": messages,
+                    "temperature": 0.5,
+                    "top_p": 1,
+                    "max_tokens": 512,
+                    "stream": False,
+                },
+                timeout=90,
+            )
+        except requests.exceptions.Timeout:
+            return {"error": "timeout", "detail": "NVIDIA API did not respond in time"}
 
         if resp.status_code != 200:
             return {"error": resp.status_code, "detail": resp.text}
