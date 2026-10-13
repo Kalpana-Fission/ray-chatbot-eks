@@ -136,7 +136,7 @@ def get_metrics_actor():
     ray_actor_options={"num_cpus": 0.5},
     autoscaling_config={
         "min_replicas": 1,
-        "max_replicas": 6,
+        "max_replicas": 10,
         "target_ongoing_requests": 2,
         "upscale_delay_s": 5,
         "downscale_delay_s": 30,

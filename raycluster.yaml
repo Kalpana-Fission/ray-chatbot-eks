@@ -52,7 +52,7 @@ spec:
     - groupName: cpu-workers
       replicas: 1
       minReplicas: 1
-      maxReplicas: 3
+      maxReplicas: 5
       rayStartParams: {}
       template:
         spec:
