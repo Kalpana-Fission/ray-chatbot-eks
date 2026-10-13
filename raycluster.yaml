@@ -33,6 +33,22 @@ spec:
               limits:
                 cpu: "1"
                 memory: "3Gi"
+            livenessProbe:
+              exec:
+                command: ["bash", "-c", "wget -T 2 -q -O- http://localhost:52365/api/local_raylet_healthz | grep success"]
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 60
+              successThreshold: 1
+            readinessProbe:
+              exec:
+                command: ["bash", "-c", "wget -T 2 -q -O- http://localhost:52365/api/local_raylet_healthz | grep success"]
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 20
+              successThreshold: 1
             ports:
               - containerPort: 6379
                 name: gcs
@@ -74,10 +90,26 @@ spec:
               resources:
                 requests:
                   cpu: "1"
-                  memory: "2Gi"
+                  memory: "2.5Gi"
                 limits:
                   cpu: "1"
-                  memory: "2Gi"
+                  memory: "3Gi"
+              livenessProbe:
+                exec:
+                  command: ["bash", "-c", "wget -T 2 -q -O- http://localhost:52365/api/local_raylet_healthz | grep success"]
+                initialDelaySeconds: 60
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 60
+                successThreshold: 1
+              readinessProbe:
+                exec:
+                  command: ["bash", "-c", "wget -T 2 -q -O- http://localhost:52365/api/local_raylet_healthz | grep success"]
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 20
+                successThreshold: 1
               volumeMounts:
                 - mountPath: /tmp/ray
                   name: log-volume
