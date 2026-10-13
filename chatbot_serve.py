@@ -3,7 +3,7 @@ import requests
 from starlette.requests import Request
 from ray import serve
 
-NVIDIA_MODEL = "meta/llama3-8b-instruct"
+NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 
@@ -26,7 +26,11 @@ class ChatBot:
         message = data["message"]
         history = data.get("history", [])
 
-        messages = history + [{"role": "user", "content": message}]
+        messages = (
+            [{"role": "system", "content": "You are a helpful assistant."}]
+            + history
+            + [{"role": "user", "content": message}]
+        )
 
         resp = requests.post(
             NVIDIA_URL,
@@ -37,8 +41,10 @@ class ChatBot:
             json={
                 "model": NVIDIA_MODEL,
                 "messages": messages,
-                "max_tokens": 256,
-                "temperature": 0.7,
+                "temperature": 0.5,
+                "top_p": 1,
+                "max_tokens": 1024,
+                "stream": False,
             },
             timeout=30,
         )
