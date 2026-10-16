@@ -119,14 +119,16 @@ This is the most important practical reason this project uses Ray, so it is wort
 
 ### Replicas vs requests — what `max_replicas: 10` actually means
 
-`max_replicas: 10` is a ceiling on **worker instances**, not a ceiling on **concurrent requests**. Two separate numbers combine to determine real capacity:
+`max_replicas: 10` is a ceiling on **worker instances**, not a ceiling on **concurrent requests**, and it's worth being precise about what the numbers around it do and don't guarantee:
 
 - `max_replicas: 10` — the max number of Python actor instances
-- `max_ongoing_requests` (Ray Serve default: `5`) — how many requests **each replica** can handle at the same time
+- `max_ongoing_requests` (Ray Serve default: `5`) — how many requests the proxy will **assign** to a replica before it's gotten a response back for any of them. It's an admission limit, not a promise that all 5 run in parallel at that instant.
 
-Real concurrent capacity ≈ `max_replicas × max_ongoing_requests` = up to **50** concurrent requests, not 10. A single replica can juggle multiple requests concurrently because the code uses `asyncio.to_thread` for the blocking model-API call — without that fix, a replica could only usefully handle one request at a time regardless of what the config says (see "Lessons learned" below).
+With 10 replicas at that default, the proxy will not have more than `10 × 5 = 50` requests assigned-and-unanswered across the deployment at once — that's the real ceiling, phrased carefully. Whether those 50 are genuinely progressing simultaneously depends on whether each replica's code actually yields the event loop instead of blocking it. In this project that caveat was not theoretical: the first version made a blocking `requests.post()` call inside an `async def` handler, which silently serialized every request onto a single replica no matter how many existed. The fix — `asyncio.to_thread(...)` around the blocking call — is what makes the 50-admission ceiling actually mean something (see "Lessons learned" below).
 
 `target_ongoing_requests: 2` is the **trigger**, not the hard cap: "if a replica averages more than ~2 requests in flight, add another replica." The autoscaler prefers spreading load thin across many replicas rather than stacking requests onto a few.
+
+**What happens once you hit `max_replicas`.** It's a hard ceiling — the Ray autoscaler will not ask KubeRay for an 11th replica no matter how much demand there is, which means no further pod or node scaling happens either, since nothing new was requested. Extra load beyond that point doesn't get rejected; it waits in the proxy's backlog. Each of the 10 replicas keeps handling requests up to its own `max_ongoing_requests` limit, and the moment one finishes and frees a slot, the proxy hands it the next waiting request. So `max_replicas` caps **spend**, not what eventually gets served — past the ceiling you're trading latency for cost, not losing requests.
 
 ### Ray does not make any single request faster
 
