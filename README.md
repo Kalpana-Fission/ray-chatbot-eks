@@ -2,7 +2,7 @@
 
 A chatbot deployed on a Ray cluster running on Amazon EKS, demonstrating three layers of autoscaling: Ray Serve replicas, Kubernetes pods (via KubeRay), and EC2 nodes (via Cluster Autoscaler).
 
-See [`docs/DOCUMENTATION.md`](docs/DOCUMENTATION.md) for the full guide (architecture, concepts, KEDA vs KubeRay, deployment steps, commands, troubleshooting).
+See [`docs/DOCUMENTATION.md`](docs/DOCUMENTATION.md) for the full guide (architecture, concepts, KEDA vs KubeRay, deployment steps, commands, troubleshooting), or [`docs/blog.html`](docs/blog.html) for a narrative write-up with two live, interactive demos of the autoscaling (download and open it in a browser, or view via [raw.githack.com](https://raw.githack.com/Kalpana-Fission/ray-chatbot-eks/master/docs/blog.html)).
 
 ## What's here
 

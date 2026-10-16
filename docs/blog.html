@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why Kubernetes Couldn't See Our Chatbot Was Overloaded</title>
+<style>
+/* layout: long-form article — wide hero statement, 62ch reading column, figures break out to panel width */
+:root{
+  --bg:#faf9f6; --panel:#ffffff; --fg:#1a1d1a; --muted:#5f6660; --line:#e0ddd4; --line-soft:#eeece4;
+  --accent:#b5551f; --replica:#3d7a4f; --pod:#2f5fa3; --node:#6b4c9a; --warn:#b5551f;
+  --font-display:"Fraunces",Georgia,serif;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15140f; --panel:#1d1c16; --fg:#ece9de; --muted:#9a9688; --line:#352f23; --line-soft:#262319;
+    --accent:#e08a4f; --replica:#6fc98a; --pod:#79a9e0; --node:#b39adb; --warn:#e08a4f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15140f; --panel:#1d1c16; --fg:#ece9de; --muted:#9a9688; --line:#352f23; --line-soft:#262319;
+  --accent:#e08a4f; --replica:#6fc98a; --pod:#79a9e0; --node:#b39adb; --warn:#e08a4f;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--fg); font-family:var(--font-body); font-size:16px; line-height:1.65;
+  padding-left:max(16px, env(safe-area-inset-left,0px)); padding-right:max(16px, env(safe-area-inset-right,0px));
+}
+.article{max-width:1060px; margin:0 auto; padding-block:56px 80px}
+.col{max-width:64ch; margin-inline:auto}
+.wide{max-width:900px; margin-inline:auto}
+
+.kicker{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); text-align:center; margin-bottom:18px}
+h1{
+  font-family:var(--font-display); font-size:clamp(2.1rem,5vw,3.1rem); font-weight:600; line-height:1.08;
+  text-wrap:balance; text-align:center; margin:0 auto; max-width:16ch; letter-spacing:-.01em;
+}
+.subtitle{font-size:1.15rem; color:var(--muted); text-align:center; max-width:46ch; margin:20px auto 0; line-height:1.55}
+.byline{display:flex; justify-content:center; gap:14px; align-items:center; margin-top:28px; font-family:var(--font-mono); font-size:12.5px; color:var(--muted)}
+.byline .dot{width:3px; height:3px; border-radius:50%; background:var(--muted)}
+
+h2{
+  font-family:var(--font-display); font-size:1.9rem; font-weight:600; letter-spacing:-.01em; text-wrap:balance;
+  margin:64px 0 18px;
+}
+h3{font-family:var(--font-display); font-size:1.25rem; font-weight:600; margin:32px 0 10px}
+p{margin:16px 0}
+p.lead{font-size:1.1rem; color:var(--fg)}
+strong{font-weight:600}
+code{font-family:var(--font-mono); font-size:.86em; background:var(--line-soft); padding:1px 6px; border-radius:4px}
+a{color:var(--accent)}
+hr.rule{border:none; border-top:1px solid var(--line); margin:56px auto; max-width:200px}
+
+.pullquote{
+  font-family:var(--font-display); font-size:1.5rem; font-weight:500; line-height:1.4; text-wrap:balance;
+  color:var(--fg); border-left:3px solid var(--accent); padding-left:24px; margin:40px auto; max-width:46ch;
+}
+
+figure{margin:36px 0}
+figure.wide{max-width:900px; margin-inline:auto}
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:24px}
+.panel svg{display:block; width:100%; height:auto}
+figcaption{font-size:13px; color:var(--muted); margin-top:10px; max-width:64ch; margin-inline:auto; text-align:center}
+
+.legend{display:flex; justify-content:center; gap:22px; flex-wrap:wrap; margin-top:14px; font-size:12.5px; color:var(--muted)}
+.legend span{display:inline-flex; align-items:center; gap:7px}
+.dot-sq{width:9px; height:9px; border-radius:2px; flex:none}
+
+.statrow{display:flex; justify-content:center; gap:40px; flex-wrap:wrap; margin:36px 0}
+.stat{text-align:center}
+.stat .n{font-family:var(--font-mono); font-size:1.9rem; font-variant-numeric:tabular-nums; color:var(--accent)}
+.stat .l{font-size:12.5px; color:var(--muted); margin-top:4px}
+
+.tbl{overflow-x:auto; margin:24px 0; border:1px solid var(--line); border-radius:10px; background:var(--panel)}
+table{border-collapse:collapse; width:100%; min-width:560px; font-size:14px}
+th,td{text-align:left; vertical-align:top; padding:12px 16px; border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{font-family:var(--font-mono); font-size:10.5px; font-weight:500; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); background:var(--line-soft)}
+
+.card-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:28px 0}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px}
+.card .tag{font-family:var(--font-mono); font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em}
+.card h4{font-family:var(--font-display); font-size:1.05rem; margin:6px 0 6px; font-weight:600}
+.card p{margin:0; font-size:13.5px; color:var(--muted)}
+
+.faq-item{border-bottom:1px solid var(--line); padding:20px 0}
+.faq-item:last-child{border-bottom:none}
+.faq-q{font-family:var(--font-display); font-weight:600; font-size:1.05rem; margin-bottom:8px}
+
+.cta{
+  background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:32px; text-align:center;
+  max-width:560px; margin:56px auto 0;
+}
+.cta h3{margin-top:0}
+.cta a.btn{
+  display:inline-block; font-family:var(--font-mono); font-size:13px; font-weight:500;
+  background:var(--accent); color:var(--bg); padding:11px 22px; border-radius:8px; text-decoration:none; margin-top:14px;
+}
+
+footer{margin-top:64px; text-align:center; color:var(--muted); font-size:13px}
+
+@media (max-width: 600px){
+  .statrow{gap:24px}
+}
+
+.gloss-panel{padding:22px 26px}
+.gloss-title{font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); margin-bottom:14px}
+.gloss-list{display:grid; grid-template-columns:1fr 1fr; gap:16px 28px; margin:0}
+@media (max-width:600px){ .gloss-list{grid-template-columns:1fr} }
+.gloss-list dt{font-family:var(--font-display); font-size:14.5px; font-weight:600; margin-bottom:3px}
+.gloss-list dd{margin:0; font-size:13.5px; color:var(--muted); line-height:1.5}
+
+/* live simulator (prefixed ls- to avoid colliding with article styles above) */
+.ls-controls{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+.ls-run{font-family:var(--font-mono); font-size:13px; font-weight:500; letter-spacing:.02em; background:var(--accent); color:var(--bg); border:none; border-radius:8px; padding:11px 20px; cursor:pointer}
+.ls-run:hover{opacity:.92}
+.ls-run:disabled{opacity:.5; cursor:default}
+.ls-status{font-family:var(--font-mono); font-size:12.5px; color:var(--muted)}
+.ls-tiers{display:grid; gap:14px; margin-top:20px}
+.ls-tier{border:1px solid var(--line); border-radius:10px; padding:16px 18px; background:var(--bg)}
+.ls-tier-head{display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap}
+.ls-tier-name{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)}
+.ls-tier-count{font-family:var(--font-mono); font-size:1.25rem; font-variant-numeric:tabular-nums}
+.ls-boxes{display:flex; gap:7px; flex-wrap:wrap; margin-top:12px; min-height:28px}
+.ls-box{width:24px; height:24px; border-radius:6px; border:1.5px solid var(--line); opacity:0; transform:scale(.6); transition:opacity .25s ease, transform .25s ease}
+.ls-box.in{opacity:1; transform:scale(1)}
+.ls-box.replica{border-color:var(--replica); background:color-mix(in srgb, var(--replica) 16%, transparent)}
+.ls-box.pod{border-color:var(--pod); background:color-mix(in srgb, var(--pod) 16%, transparent)}
+.ls-box.node{border-color:var(--node); background:color-mix(in srgb, var(--node) 16%, transparent)}
+.ls-trigger{font-size:12px; color:var(--muted); margin-top:9px}
+@media (prefers-reduced-motion: reduce){ .ls-box{transition:none} }
+
+/* nested node/pod/replica view */
+.ls-cpu-badge{font-family:var(--font-mono); font-size:12.5px; color:var(--warn); background:var(--line-soft); border-radius:999px; padding:4px 11px}
+.ls-nest{display:flex; gap:12px; flex-wrap:wrap; margin-top:18px}
+.ls-node-box{border:1.5px solid var(--node); border-radius:10px; padding:10px; background:color-mix(in srgb, var(--node) 5%, transparent); min-width:140px; flex:1 1 140px; transition:opacity .3s ease}
+.ls-node-label{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--node); margin-bottom:8px}
+.ls-pod-row{display:flex; flex-direction:column; gap:6px}
+.ls-pod-box{border:1.3px solid var(--pod); border-radius:7px; padding:6px 8px; background:color-mix(in srgb, var(--pod) 7%, transparent)}
+.ls-pod-label{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.04em; text-transform:uppercase; color:var(--pod); margin-bottom:5px}
+.ls-replica-row{display:flex; gap:4px; flex-wrap:wrap; min-height:10px}
+.ls-replica-dot{width:9px; height:9px; border-radius:50%; background:var(--replica); flex:none}
+.ls-nest-legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:14px; font-size:12px; color:var(--muted)}
+.ls-nest-legend span{display:inline-flex; align-items:center; gap:6px}
+.ls-dot{width:9px; height:9px; border-radius:3px; flex:none}
+
+/* click-to-send demo (prefixed cd-) */
+.cd-wrap{display:grid; grid-template-columns:1fr 1.6fr 1fr; gap:18px}
+@media (max-width:820px){ .cd-wrap{grid-template-columns:1fr} }
+.cd-col{min-width:0}
+.cd-panel-title{font-family:var(--font-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-bottom:8px}
+.cd-muted{text-transform:none; letter-spacing:0; color:var(--muted)}
+.cd-users{display:grid; grid-template-columns:repeat(4,1fr); gap:6px}
+.cd-user{font-family:var(--font-mono); font-size:11.5px; padding:7px 0; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); cursor:pointer; transition:background .15s ease, border-color .15s ease}
+.cd-user:hover{border-color:var(--accent)}
+.cd-user.cd-sent{background:color-mix(in srgb, var(--accent) 22%, transparent); border-color:var(--accent)}
+.cd-backlog{border:1px solid var(--line); border-radius:8px; padding:8px; max-height:160px; overflow-y:auto; display:flex; flex-direction:column; gap:5px}
+.cd-backlog-item{font-family:var(--font-mono); font-size:11.5px; color:var(--warn); background:color-mix(in srgb, var(--warn) 10%, transparent); border-radius:5px; padding:4px 8px}
+.cd-empty{font-size:12px; color:var(--muted)}
+.cd-col-mid{display:flex; flex-direction:column}
+.cd-cluster-head{font-weight:600; text-align:center; font-size:14px}
+.cd-cluster-sub{font-family:var(--font-mono); font-size:10.5px; color:var(--muted); text-align:center; margin-top:2px; margin-bottom:12px}
+.cd-nodes{display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-top:10px}
+.cd-node{font-family:var(--font-mono); font-size:10.5px; border:1.5px solid var(--node); border-radius:8px; padding:6px 10px; color:var(--node); background:color-mix(in srgb, var(--node) 6%, transparent); text-align:center; min-width:72px}
+.cd-node.cd-joining{border-style:dashed; color:var(--warn); border-color:var(--warn); background:color-mix(in srgb, var(--warn) 8%, transparent)}
+.cd-node-sub{font-size:9px; color:var(--muted); margin-top:2px}
+.cd-pods{display:flex; flex-direction:column; gap:10px; flex:1; margin-top:4px}
+.cd-pod{border:1.5px solid var(--pod); border-radius:10px; padding:10px; background:color-mix(in srgb, var(--pod) 5%, transparent)}
+.cd-pod.cd-pending{border-style:dashed; opacity:.65}
+.cd-pod-head{display:flex; justify-content:space-between; align-items:baseline; font-family:var(--font-mono); font-size:10.5px; color:var(--pod); text-transform:uppercase; letter-spacing:.04em}
+.cd-pod-flag{font-size:10px; color:var(--accent); font-style:italic; text-transform:none; letter-spacing:0}
+.cd-replicas{display:flex; flex-direction:column; gap:6px; margin-top:8px}
+.cd-replica{border:1.3px solid var(--replica); border-radius:7px; padding:6px 9px; display:flex; justify-content:space-between; align-items:center; gap:8px; background:color-mix(in srgb, var(--replica) 7%, transparent)}
+.cd-replica-label{font-family:var(--font-mono); font-size:11px; color:var(--fg)}
+.cd-replica-sub{font-size:10px; color:var(--muted)}
+.cd-replica-load{font-family:var(--font-mono); font-size:11px; color:var(--replica); font-variant-numeric:tabular-nums}
+.cd-autoscale-note{font-size:11px; color:var(--muted); text-align:center; margin-top:10px}
+.cd-api-panel{border:1.5px solid var(--accent); border-radius:12px; padding:18px; text-align:center; background:color-mix(in srgb, var(--accent) 5%, transparent)}
+.cd-api-title{font-weight:600; font-size:14px}
+.cd-api-model{font-family:var(--font-mono); font-size:10px; color:var(--muted); margin-top:2px; word-break:break-all}
+.cd-api-spinner{width:16px; height:16px; border-radius:50%; border:2px solid var(--line); border-top-color:var(--accent); margin:14px auto; animation:cd-spin 1s linear infinite; opacity:.35}
+.cd-api-spinner.cd-active{opacity:1}
+@keyframes cd-spin{to{transform:rotate(360deg)}}
+.cd-api-stat{margin-top:10px}
+.cd-api-n{font-family:var(--font-mono); font-size:1.6rem; font-variant-numeric:tabular-nums; color:var(--accent)}
+.cd-api-l{font-size:11px; color:var(--muted)}
+.cd-api-note{font-size:11px; color:var(--muted); margin-top:14px}
+body{background:var(--bg); color:var(--fg)}
+</style>
+</head>
+<body>
+
+<article class="article">
+
+  <header class="col">
+    <div class="kicker">Infrastructure &middot; Ray on Kubernetes</div>
+    <h1>Why Kubernetes Couldn't See Our Chatbot Was Overloaded</h1>
+    <p class="subtitle">A chatbot, an LLM API, and the autoscaler that watched the wrong number — what we learned deploying Ray Serve on EKS, measured with real load tests.</p>
+    <div class="byline"><span>DevOps walkthrough</span><span class="dot"></span><span>15 min read</span></div>
+  </header>
+
+  <div class="statrow wide">
+    <div class="stat"><div class="n">7&ndash;15%</div><div class="l">CPU under real load</div></div>
+    <div class="stat"><div class="n">1&rarr;10</div><div class="l">Ray replicas scaled</div></div>
+    <div class="stat"><div class="n">500 / 0</div><div class="l">requests served / errors</div></div>
+  </div>
+
+  <div class="col">
+    <p class="lead">We deployed a chatbot on Ray Serve, running on Amazon EKS through KubeRay. Partway through load-testing it, we found something that should worry anyone running an AI workload on plain Kubernetes autoscaling: the built-in autoscaler couldn't see that our app was overloaded. Not "scaled it too slowly" &mdash; genuinely couldn't see it, by design.</p>
+    <p>This is the story of why, what we did about it, and what broke along the way. It's written so a reader with no Ray experience can follow every step, including the mistakes.</p>
+  </div>
+
+  <div class="wide">
+    <div class="panel gloss-panel">
+      <div class="gloss-title">Four terms worth having straight before you read on</div>
+      <dl class="gloss-list">
+        <div><dt>Ray Serve replica</dt><dd>One running instance of your application &mdash; here, the chatbot. A lightweight Ray actor, not a whole container.</dd></div>
+        <div><dt>Ray worker pod</dt><dd>A Kubernetes pod that provides CPU/memory for Ray to run replicas in. One pod can hold several replicas.</dd></div>
+        <div><dt>HPA (HorizontalPodAutoscaler)</dt><dd>Kubernetes' built-in mechanism for adjusting how many copies of a pod are running, based on a metric &mdash; CPU/memory by default.</dd></div>
+        <div><dt>Cluster Autoscaler</dt><dd>Adjusts how many EC2 nodes the cluster has, by adding one whenever a pod can't be scheduled anywhere.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">Watch it scale, live</h2>
+  <div class="col">
+    <p>Before the full write-up: here's an interactive replay of the actual sequence from our 500-request load test (concurrency 70). Press run and watch each layer react only once the one above it runs out of room &mdash; that delay between layers is real, not simplified for the animation. It also plays through what happens after the load stops: replicas and pods snap back almost immediately, while nodes linger for a while longer before Cluster Autoscaler commits to removing them.</p>
+  </div>
+
+  <div class="wide">
+    <div class="panel">
+      <div class="ls-controls">
+        <button class="ls-run" id="lsRunBtn">Run load test</button>
+        <span class="ls-status" id="lsStatus">Idle &middot; 1 replica, 1 pod, 2 nodes</span>
+      </div>
+      <div class="ls-tiers">
+        <div class="ls-tier">
+          <div class="ls-tier-head">
+            <div class="ls-tier-name">Layer 1 &middot; Ray Serve replicas</div>
+            <div class="ls-tier-count" id="lsL1count" style="color:var(--replica)">1</div>
+          </div>
+          <div class="ls-boxes" id="lsL1"></div>
+          <div class="ls-trigger" id="lsL1trigger">Ongoing requests per replica &gt; 2 &rarr; add a replica</div>
+        </div>
+        <div class="ls-tier">
+          <div class="ls-tier-head">
+            <div class="ls-tier-name">Layer 2 &middot; Kubernetes pods</div>
+            <div class="ls-tier-count" id="lsL2count" style="color:var(--pod)">1</div>
+          </div>
+          <div class="ls-boxes" id="lsL2"></div>
+          <div class="ls-trigger" id="lsL2trigger">Waiting for Layer 1 to exceed current pod capacity</div>
+        </div>
+        <div class="ls-tier">
+          <div class="ls-tier-head">
+            <div class="ls-tier-name">Layer 3 &middot; EC2 nodes</div>
+            <div class="ls-tier-count" id="lsL3count" style="color:var(--node)">2</div>
+          </div>
+          <div class="ls-boxes" id="lsL3"></div>
+          <div class="ls-trigger" id="lsL3trigger">Waiting for a pod to go Pending</div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="col" style="margin-top:36px">Inside the cluster: what's physically nested where</h3>
+    <div class="col">
+      <p>The three tiers above show <em>what scales</em> &mdash; replicas, pods, nodes. Underneath that are four components making it happen: the Ray Serve autoscaler and the Ray autoscaler both decide (replica count, then worker capacity), while KubeRay and Cluster Autoscaler both reconcile and execute (creating the pod, then the node). This view shows <em>where things actually run</em>: replicas live inside pods, pods live inside nodes, and the cluster's CPU utilization barely moves no matter how full it gets &mdash; which is exactly the blind spot this whole post is about.</p>
+    </div>
+
+    <div class="panel" style="margin-top:14px">
+      <div class="ls-controls" style="justify-content:space-between">
+        <span class="ls-status">Node CPU is the number a plain HPA would be watching</span>
+        <span class="ls-cpu-badge" id="lsCpu">~4% CPU</span>
+      </div>
+      <div class="ls-nest" id="lsNest"></div>
+      <div class="ls-nest-legend">
+        <span><span class="ls-dot" style="background:var(--node)"></span>EC2 node</span>
+        <span><span class="ls-dot" style="background:var(--pod)"></span>Kubernetes pod</span>
+        <span><span class="ls-dot" style="background:var(--replica)"></span>Ray Serve replica</span>
+      </div>
+    </div>
+
+    <p style="font-size:13px; color:var(--muted); margin-top:10px">This is a scripted replay for illustration, built from the sequence we observed &mdash; not a live connection to a cluster. For the full standalone version with the request-flow diagram and CPU-blindness chart, see the <a href="https://claude.ai/artifact/MRuVjwDbczpVtP1fj2DVHh" target="_blank" rel="noopener">dedicated architecture walkthrough</a>.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">Try it yourself: click real users to send requests</h2>
+  <div class="col">
+    <p>Click any user on the left to fire a real (simulated) chat request, or press <strong>Start demo</strong> to run the whole thing end-to-end automatically &mdash; a burst of requests that pushes all three layers to scale up in front of you, the same way our actual 500-request load test did: the Ray autoscaler requests more worker capacity once pending resource demand exceeds what's available, KubeRay reconciles that into an actual worker pod, and Cluster Autoscaler adds an EC2 node if that pod can't be scheduled anywhere &mdash; all driven off the same waiting-backlog signal you can watch on the left.</p>
+    <p style="font-size:13px; color:var(--muted)">One simplification, stated plainly: this demo uses smaller limits (max 9 replicas, 3 pods, 4 nodes) than our real deployment's <code>max_replicas: 10</code>, so a full scale-up plays out in seconds instead of minutes. The decision pattern &mdash; replica demand &rarr; Ray autoscaler request &rarr; KubeRay reconciliation &rarr; Cluster Autoscaler node &mdash; is the same; only the numbers are rounded down for a snappier demo.</p>
+  </div>
+
+  <div class="wide">
+    <div class="panel cd-wrap">
+      <div class="cd-col">
+        <div class="cd-panel-title">20 users <span class="cd-muted">&middot; click to send a query</span></div>
+        <div class="cd-users" id="cdUsers"></div>
+        <div class="cd-panel-title" style="margin-top:18px">Waiting / backlog <span class="cd-muted" id="cdBacklogCount">(0 waiting)</span></div>
+        <div class="cd-backlog" id="cdBacklog"><div class="cd-empty">Nothing waiting</div></div>
+      </div>
+
+      <div class="cd-col cd-col-mid">
+        <div class="cd-cluster-head">EC2 nodes &middot; Cluster Autoscaler</div>
+        <div class="cd-nodes" id="cdNodes"></div>
+        <div class="cd-cluster-head" style="margin-top:16px">Kubernetes cluster &middot; KubeRay</div>
+        <div class="cd-cluster-sub">Ray head pod &rarr; scheduling / control</div>
+        <div class="cd-pods" id="cdPods"></div>
+        <div class="cd-autoscale-note">Illustrative limits (max 9 replicas here vs. <code>max_replicas: 10</code> in production) &middot; 2 requests/replica before the Ray autoscaler requests more capacity &middot; 3 replicas/pod, 1 pod/node before the layer above scales</div>
+        <div class="cd-autoscale-note" id="cdDownscaleNote" style="margin-top:4px">Idle &mdash; replicas scale down fast (~4s here), nodes scale down slow (~11s here), same asymmetry as the real cluster</div>
+      </div>
+
+      <div class="cd-col">
+        <div class="cd-api-panel">
+          <div class="cd-api-title">NVIDIA Nemotron</div>
+          <div class="cd-api-model">nvidia/nemotron-3-super-120b-a12b</div>
+          <div class="cd-api-spinner" id="cdSpinner"></div>
+          <div class="cd-api-stat"><div class="cd-api-n" id="cdCalls">0</div><div class="cd-api-l">LLM calls</div></div>
+          <div class="cd-api-stat"><div class="cd-api-n" id="cdResp">0</div><div class="cd-api-l">Responses</div></div>
+          <p class="cd-api-note">Each replica calls the API directly over HTTPS &mdash; Ray doesn't know or care what's on the other end.</p>
+        </div>
+        <button class="ls-run" id="cdStart" style="margin-top:14px; width:100%">Start demo (end to end)</button>
+        <button class="ls-run" id="cdReset" style="margin-top:8px; width:100%; background:transparent; color:var(--accent); border:1px solid var(--accent)">Reset demo</button>
+      </div>
+    </div>
+    <p style="font-size:13px; color:var(--muted); margin-top:10px">Response time here is simulated (1&ndash;3s per request) to keep the demo fast to play with; our real load tests against NVIDIA's API saw latencies up to 90s under load, which is exactly why a backlog and autoscaling matter.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">The setup</h2>
+  <div class="col">
+    <p>The project: a chatbot backed by an LLM API, deployed as a Ray Serve application, running on an EKS cluster. Three pieces work together, each scaling something different:</p>
+  </div>
+
+  <figure class="wide">
+    <div class="panel">
+      <svg viewBox="0 0 820 300" role="img" aria-label="A request enters through the Ray Serve proxy, flows to Ray Serve replicas (Layer 1), which run inside Kubernetes pods (Layer 2), which run on EC2 nodes (Layer 3). Each layer scales the one below it.">
+        <defs>
+          <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0 0L10 5L0 10z" fill="var(--muted)"/>
+          </marker>
+        </defs>
+        <rect x="320" y="14" width="180" height="42" rx="8" fill="var(--bg)" stroke="var(--line)"/>
+        <text x="410" y="40" text-anchor="middle" font-family="var(--font-mono)" font-size="12.5" fill="var(--fg)">Ray Serve proxy</text>
+        <line x1="410" y1="56" x2="410" y2="78" stroke="var(--muted)" stroke-width="1.3" marker-end="url(#arA)"/>
+
+        <rect x="60" y="78" width="700" height="62" rx="10" fill="none" stroke="var(--replica)" stroke-width="1.4"/>
+        <text x="80" y="102" font-family="var(--font-mono)" font-size="11" letter-spacing="0.05em" fill="var(--replica)">LAYER 1 &middot; RAY SERVE REPLICAS</text>
+        <text x="80" y="120" font-size="12" fill="var(--muted)">Ray's own autoscaler &middot; watches requests-in-flight per replica</text>
+
+        <line x1="410" y1="140" x2="410" y2="162" stroke="var(--muted)" stroke-width="1.3" marker-end="url(#arA)"/>
+
+        <rect x="60" y="162" width="700" height="62" rx="10" fill="none" stroke="var(--pod)" stroke-width="1.4"/>
+        <text x="80" y="186" font-family="var(--font-mono)" font-size="11" letter-spacing="0.05em" fill="var(--pod)">LAYER 2 &middot; KUBERNETES PODS</text>
+        <text x="80" y="204" font-size="12" fill="var(--muted)">KubeRay operator &middot; reconciles worker pods with what the Ray autoscaler requests</text>
+
+        <line x1="410" y1="224" x2="410" y2="246" stroke="var(--muted)" stroke-width="1.3" marker-end="url(#arA)"/>
+
+        <rect x="60" y="246" width="700" height="46" rx="10" fill="none" stroke="var(--node)" stroke-width="1.4"/>
+        <text x="80" y="266" font-family="var(--font-mono)" font-size="11" letter-spacing="0.05em" fill="var(--node)">LAYER 3 &middot; EC2 NODES</text>
+        <text x="80" y="282" font-size="12" fill="var(--muted)">Cluster Autoscaler &middot; adds nodes when a pod can't be scheduled</text>
+      </svg>
+    </div>
+    <figcaption>None of these three layers know what the other two are doing internally. That separation is the whole design.</figcaption>
+  </figure>
+
+  <div class="col">
+    <p>Four components actually make up that chain, and keeping them distinct matters once something goes wrong:</p>
+  </div>
+
+  <div class="tbl wide">
+    <table>
+      <thead><tr><th>Component</th><th>Decides</th><th>Acts on</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Ray Serve autoscaler</strong></td><td>How many application replicas (Ray actors) to run</td><td>Replica count for one deployment</td></tr>
+        <tr><td><strong>Ray autoscaler</strong></td><td>Whether the Ray cluster needs additional worker capacity to satisfy pending resource demand from Ray workloads</td><td>Requests more workers in the <code>RayCluster</code> spec when demand exceeds available capacity</td></tr>
+        <tr><td><strong>KubeRay operator</strong></td><td>Nothing on its own &mdash; it reconciles</td><td>Reconciles the requested worker-group size in the <code>RayCluster</code> spec with actual Kubernetes resources, creating or removing worker pods as appropriate</td></tr>
+        <tr><td><strong>Cluster Autoscaler</strong></td><td>Whether a pod can be scheduled anywhere</td><td>Adds an EC2 node when it can't</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>The distinction between the second and third rows is easy to miss: the <em>decision</em> that more worker capacity is needed is the Ray autoscaler's job, running inside Ray itself, based on pending resource demand from Ray workloads — not a simple CPU threshold check. The KubeRay operator doesn't make that decision at all; it reconciles whatever worker-group size the Ray autoscaler requests against actual Kubernetes resources, creating or removing worker pods to match. Each component does one job. The interesting part is what happens one layer up — the decision about <em>when</em> any of this scaling should even begin.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">The blind spot</h2>
+  <div class="col">
+    <p class="lead">Out of the box, the <code>HorizontalPodAutoscaler</code> watches one thing: CPU or memory utilization. If a pod's CPU crosses a threshold — typically 70-80% — it creates more copies of that pod. To be precise about what Kubernetes <em>can</em> do: HPA supports custom and external metrics too, via an adapter (Prometheus Adapter, KEDA, and others) that exposes an application-level number to the metrics API. The limitation isn't that Kubernetes is structurally blind — it's that nothing does this by default, and wiring it up is a separate metrics pipeline you have to build and run.</p>
+    <p>That works fine when your workload does real computation per request. Our chatbot doesn't. Each request's job is: receive a message, call an external LLM API over the network, wait, return the reply. During that wait — which was often 2 to 50 seconds — the pod does almost nothing. It's not computing. It's sitting idle, waiting for a response from someone else's server.</p>
+  </div>
+
+  <div class="pullquote">On our load test, nodes serving that chatbot traffic sat at 7 to 15% CPU — a single run, on our specific instance types and request mix, not a general number for all LLM workloads.</div>
+
+  <div class="col">
+    <p>Picture a CPU-based autoscaler watching that number. Fifty people are waiting on a reply. The queue is growing. And the autoscaler looks at CPU, sees 10%, and concludes everything is fine — because, by the only measure it knows how to take, everything <em>is</em> fine. The thing actually under pressure — how many requests are queued waiting on an external API — is completely invisible to it.</p>
+    <p>This isn't a tuning problem you can fix by lowering the threshold. The signal itself doesn't correlate with the real bottleneck. No threshold on CPU will ever reliably predict "there are 50 people waiting" for a workload where CPU and request load aren't related.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="panel">
+      <svg viewBox="0 0 820 300" role="img" aria-label="Over the course of the load test, requests in flight rise steadily from zero to fifty, while CPU utilization stays flat under twenty percent for the entire duration, far below a typical seventy percent autoscaling threshold.">
+        <line x1="70" y1="30" x2="70" y2="240" stroke="var(--line)" stroke-width="1.2"/>
+        <line x1="70" y1="240" x2="780" y2="240" stroke="var(--line)" stroke-width="1.2"/>
+        <text x="70" y="22" font-size="11.5" fill="var(--muted)">100%</text>
+        <text x="40" y="138" font-size="11.5" fill="var(--muted)">50</text>
+        <text x="58" y="246" font-size="11.5" fill="var(--muted)">0</text>
+        <text x="780" y="258" font-size="12" fill="var(--muted)" text-anchor="end">time &rarr;</text>
+
+        <polyline points="70,230 150,225 230,210 310,190 390,165 470,140 550,112 630,90 710,70 780,55"
+          fill="none" stroke="var(--pod)" stroke-width="2.4"/>
+        <text x="620" y="105" font-size="12.5" fill="var(--pod)">requests in flight</text>
+
+        <polyline points="70,226 150,224 230,225 310,223 390,224 470,222 550,225 630,223 710,224 780,222"
+          fill="none" stroke="var(--warn)" stroke-width="2.4"/>
+        <text x="620" y="236" font-size="12.5" fill="var(--warn)">CPU %</text>
+
+        <line x1="70" y1="192" x2="780" y2="192" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+        <text x="76" y="187" font-size="11" fill="var(--muted)">typical HPA threshold &mdash; 70%</text>
+      </svg>
+    </div>
+    <figcaption>CPU (orange) never approaches a typical scale-up threshold, even as real demand (blue) climbs steadily. A CPU-based autoscaler sees only the flat line.</figcaption>
+  </figure>
+
+  <hr class="rule">
+
+  <h2 class="col">What Ray watches instead</h2>
+  <div class="col">
+    <p>Ray Serve's autoscaler doesn't look at CPU at all. It watches <code>ongoing requests per replica</code> — literally, how many requests each individual worker is handling right now. That number lives inside the Ray process itself. Kubernetes <em>could</em> be taught to see a number like this through a custom-metrics adapter, but by default it can't — a bare pod only reports CPU and memory, nothing about what's happening inside the application logic. Ray Serve's advantage isn't that this is impossible on Kubernetes; it's that Ray already tracks the one number that matters for this workload and acts on it with zero extra plumbing.</p>
+    <p>In our deployment, this is one config value:</p>
+  </div>
+
+  <div class="wide">
+    <div class="panel" style="font-family:var(--font-mono); font-size:13px; overflow-x:auto">
+<pre style="margin:0; white-space:pre">@serve.deployment(
+    autoscaling_config={
+        "min_replicas": 1,
+        "max_replicas": 10,
+        "target_ongoing_requests": 2,
+    }
+)</pre>
+    </div>
+  </div>
+
+  <div class="col">
+    <p><code>target_ongoing_requests: 2</code> means: if a replica is, on average, juggling more than two requests at once, start another replica. This is the trigger, not a hard cap — a replica <em>can</em> handle more (Ray Serve's default per-replica limit is 5 concurrent requests), the autoscaler just prefers to spread load thin across many replicas rather than let a few get overloaded.</p>
+  </div>
+
+  <h3 class="col">What "max_replicas: 10" actually means</h3>
+  <div class="col">
+    <p>It's easy to misread this as "the app can serve 10 requests at a time." It's actually a looser bound than that, and worth being precise about what it does and doesn't guarantee.</p>
+    <p><code>max_ongoing_requests</code> (Ray Serve's per-replica default is 5) caps how many requests the proxy will <em>assign</em> to a replica before it's gotten a response back for any of them — it's an admission limit, not a promise that all 5 are executing in parallel at that instant. With 10 replicas at that default, the proxy will not have more than 10 &times; 5 = 50 requests assigned-and-unanswered across the deployment at once. Whether those 50 are genuinely progressing simultaneously depends on whether the replica's own code actually yields the event loop instead of blocking it.</p>
+    <p>That caveat is not theoretical — we hit it. The first version of our app made a synchronous (blocking) network call inside an <code>async def</code> handler. That one line silently serialized every request onto a single replica: the admission limit said "5 at once," but the blocking call meant only one was ever actually in flight, no matter how many replicas existed. The fix was one line: wrap the blocking call in <code>asyncio.to_thread(...)</code>, freeing the event loop to pick up the next request while the first one was still waiting on the network. After that fix, load tests that previously bottlenecked on one replica spread cleanly across many.</p>
+    <p>One more thing worth being explicit about: <code>max_replicas: 10</code> is a hard ceiling. Once all 10 replicas are running and already scheduled, the Ray autoscaler will not ask for an 11th &mdash; which means no further pod or node scaling happens either, because nothing new was requested. Extra demand beyond that point doesn't get rejected; it waits. Each replica keeps handling requests up to its own concurrency limit, and the moment one finishes and frees a slot, the proxy hands it the next request waiting in the backlog. <code>max_replicas</code> caps spend, not what eventually gets served &mdash; past the ceiling you're trading latency for cost, not losing requests.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">Watching all three layers scale, for real</h2>
+  <div class="col">
+    <p>We generated load with our own script against the deployed service, not a browser tab (browsers cap concurrent connections per origin at roughly 6, which silently throttles anything you try to measure):</p>
+  </div>
+
+  <div class="wide">
+    <div class="panel" style="font-family:var(--font-mono); font-size:13px; overflow-x:auto">
+<pre style="margin:0; white-space:pre">python chatbot_load_test.py --num-requests 500 --concurrency 70</pre>
+    </div>
+  </div>
+
+  <div class="col">
+    <p>Here's the sequence we observed, taken from Ray and Kubernetes logs during that run:</p>
+  </div>
+
+  <div class="card-grid wide">
+    <div class="card">
+      <div class="tag" style="color:var(--replica)">Layer 1</div>
+      <h4>Replicas: 1 &rarr; 10</h4>
+      <p>Ongoing requests climbed past the target almost immediately. Ray's autoscaler added replicas within seconds &mdash; the Serve controller logged <code>"Upscaling... from 4 to 10 replicas. Current ongoing requests: 18.57"</code>.</p>
+    </div>
+    <div class="card">
+      <div class="tag" style="color:var(--pod)">Layer 2</div>
+      <h4>Pods scaled up</h4>
+      <p>Once 10 replicas needed more CPU than the existing worker pods had, KubeRay created new worker pods, confirmed via <code>kubectl get pods</code> &mdash; several went to <code>Pending</code> first, with no room to schedule yet.</p>
+    </div>
+    <div class="card">
+      <div class="tag" style="color:var(--node)">Layer 3</div>
+      <h4>Nodes scaled up</h4>
+      <p>Those <code>Pending</code> pods triggered Cluster Autoscaler, logged as <code>"pod triggered scale-up"</code> events. New EC2 instances joined within a couple of minutes.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <p>End result for this run: 500/500 requests succeeded, zero errors, with scale-up visible at all three layers. We're deliberately not pinning an exact "pods: X&rarr;Y, nodes: X&rarr;Y" figure here &mdash; across our different test runs those counts varied with cluster state going in, and we'd rather report the pattern we consistently saw than a specific number we can't fully reconcile against one single log. The table below is the honest version: it's filled in only where we have a logged, verifiable number for that specific run.</p>
+  </div>
+
+  <div class="tbl wide">
+    <table>
+      <thead><tr><th>Metric</th><th>Before load</th><th>During load</th><th>After cooldown</th></tr></thead>
+      <tbody>
+        <tr><td>Request concurrency</td><td>0</td><td>70</td><td>0</td></tr>
+        <tr><td>Ray Serve replicas</td><td>1</td><td>10</td><td>1</td></tr>
+        <tr><td>Ray worker pods</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+        <tr><td>EKS nodes</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+        <tr><td>Successful requests</td><td>&mdash;</td><td>500 / 500</td><td>&mdash;</td></tr>
+        <tr><td>CPU utilization</td><td>&lt;5%</td><td>7&ndash;15%</td><td>&lt;5%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p style="font-size:13.5px; color:var(--muted)">Pod and node counts are left blank deliberately: we have screenshots and log lines showing scale-up happened, but not a single clean capture of exact before/after counts for one specific run that we're confident enough to publish as a hard number. If you're reproducing this, capture <code>kubectl get pods -o wide</code> and <code>kubectl get nodes</code> timestamps alongside your load-test run so you have that number nailed down &mdash; we didn't, and we'd rather say so than round a memory of the dashboard into a fake precision.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">Scaling back down</h2>
+  <div class="col">
+    <p>Everything so far has been about going up. The question that actually determines your bill is what happens after &mdash; when the load test ends, or real traffic quiets down, does the cluster shrink back, and how fast?</p>
+    <p>The three layers come back down on deliberately different clocks, and the mismatch between them is worth understanding on its own:</p>
+  </div>
+
+  <div class="tbl wide">
+    <table>
+      <thead><tr><th>Layer</th><th>Scale-down trigger</th><th>Typical delay</th></tr></thead>
+      <tbody>
+        <tr><td>Ray Serve replicas</td><td>Ongoing requests per replica drops back under target</td><td>Seconds &mdash; <code>downscale_delay_s: 30</code> in our config</td></tr>
+        <tr><td>Ray worker pods</td><td>KubeRay removes a pod once its replicas are gone and it's no longer needed</td><td>Roughly in step with replica scale-down</td></tr>
+        <tr><td>EC2 nodes</td><td>Cluster Autoscaler sees a node sitting under-utilized with nothing that must stay on it</td><td>Minutes &mdash; well over 10&times; the replica delay by default</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>That asymmetry is deliberate, not an oversight on either side. Ray's autoscaler can afford to be twitchy about replicas &mdash; a replica is cheap to create and destroy, so reacting fast to a drop in load doesn't cost much even if traffic comes right back and it has to scale up again a minute later. A node is a different kind of decision: tearing one down and then needing it again a few minutes later means paying for a fresh EC2 boot and bin-packing pods onto it all over again, so Cluster Autoscaler is written to be conservative and wait out brief lulls before committing to a scale-down.</p>
+    <p>The practical consequence: right after a burst of traffic, expect to see replica count drop back to <code>min_replicas</code> almost immediately while the node count stays elevated for several minutes longer. That gap is where your cost actually lives &mdash; an idle node with one lonely pod on it, kept around on purpose because tearing it down and rebuilding it for the next burst would cost more in churn than just waiting. If your traffic is genuinely bursty with real gaps in between, that's the number worth tuning (Cluster Autoscaler's <code>scale-down-unneeded-time</code> and <code>scale-down-utilization-threshold</code>), not the Ray-side delays, which are already fast by comparison.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">"Can't Kubernetes just do this?"</h2>
+  <div class="col">
+    <p class="lead">Yes, with real engineering work — and it's worth understanding exactly what that work is, because it clarifies what Ray is actually buying you.</p>
+    <p>The honest alternative is <strong>KEDA</strong> (Kubernetes Event-Driven Autoscaling) — a general-purpose autoscaler that reads an external metric and drives a standard HPA from it. You could export "requests in flight" as a custom Prometheus metric from your app, point KEDA at it, and get something that reacts correctly to real demand, without Ray at all.</p>
+  </div>
+
+  <div class="tbl wide">
+    <table>
+      <thead><tr><th>&nbsp;</th><th>Plain HPA</th><th>KEDA</th><th>Ray Serve + KubeRay</th></tr></thead>
+      <tbody>
+        <tr><td>Signal</td><td>CPU / memory only</td><td>Any metric you wire up yourself</td><td>Requests-in-flight, built in</td></tr>
+        <tr><td>Sees inside the app?</td><td>No</td><td>Only what you export</td><td>Yes, natively</td></tr>
+        <tr><td>Scaling unit</td><td>Whole pod</td><td>Whole pod</td><td>Lightweight actor &mdash; several share one pod</td></tr>
+        <tr><td>Setup for this workload</td><td>Doesn't work</td><td>Custom metrics pipeline required</td><td>One config block, no pipeline</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>So: out-of-the-box plain HPA genuinely cannot handle an I/O-bound workload like this correctly — not "handles it worse," but blind to it by default, since CPU is the only signal it ships with. KEDA removes that limitation, but only after you build and operate a metrics pipeline that Ray Serve gives you for free. And even with KEDA wired up correctly, its unit of scaling stays the whole pod; it can't pack multiple lightweight workers into one pod the way Ray's actor model does.</p>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">What it costs</h2>
+  <div class="col">
+    <p>Ray isn't free, and a fair writeup says so plainly. After we hit an out-of-memory crash loop (Bug #1 below), we set each pod's memory to a 2.5 GiB request / 3 GiB limit. That's the configured fix, not a precisely profiled baseline or peak &mdash; we raised it until the crash loop stopped, we didn't instrument exact Ray-runtime-only memory usage. What we can say with confidence: Ray's own process stack (metadata store, dashboard, scheduler) carries real fixed overhead before any application code runs, noticeably more than a bare FastAPI container doing the same job would need. Per node, you should expect to fit meaningfully fewer Ray pods than plain pods of equivalent application weight.</p>
+    <p>There's also more to understand and tune. We hit two real production bugs getting this stable:</p>
+  </div>
+
+  <div class="card-grid wide">
+    <div class="card">
+      <div class="tag" style="color:var(--warn)">Bug #1</div>
+      <h4>Head pod memory crash loop</h4>
+      <p>The head pod runs Ray's full process stack — metadata store, dashboard, scheduler — alongside our application replicas, sharing one memory limit. Under load, it hit the limit and Ray's own out-of-memory monitor started killing processes, which kept restarting the Serve controller and resetting scaling progress. Fix: size the head pod's memory with real headroom above baseline Ray overhead, not like a normal app container.</p>
+    </div>
+    <div class="card">
+      <div class="tag" style="color:var(--warn)">Bug #2</div>
+      <h4>New pods crashing on arrival</h4>
+      <p>Under heavy, simultaneous scale-up, newly created pods failed their liveness probes before they'd finished starting and got killed almost immediately. The default probe timing assumed a calmer startup than "three new pods on three new nodes, all under load, at once." Fix: loosen <code>initialDelaySeconds</code> and <code>failureThreshold</code> to give real headroom.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <p>Worth being honest about that fix: <code>failureThreshold: 60</code> at <code>periodSeconds: 10</code> allows roughly ten minutes of consecutive liveness failures before Kubernetes restarts the container. We chose that value empirically &mdash; it was loose enough that pods starting under our heaviest test stopped getting killed prematurely &mdash; not from a formal model of worst-case startup time, and we haven't load-tested the failure path (a container that's genuinely hung, not just slow to start) under this setting. A cleaner fix we didn't implement here: a Kubernetes <code>startupProbe</code>, which handles slow initialization on its own schedule and lets the ongoing <code>livenessProbe</code> stay tight once the container is actually up. If you're adapting this config, don't copy the threshold as-is &mdash; validate it against your own startup time and decide what failure behavior you actually want during that window.</p>
+  </div>
+
+  <div class="wide">
+    <div class="panel" style="font-family:var(--font-mono); font-size:12.5px; overflow-x:auto">
+<pre style="margin:0; white-space:pre">#  before
+livenessProbe:
+  exec:
+    command: ["wget", "-T", "2", "-q", "-O-", "http://localhost:52365/api/local_raylet_healthz"]
+  periodSeconds: 10
+  # default initialDelaySeconds: 0, default failureThreshold: 3
+
+#  after
+livenessProbe:
+  exec:
+    command: ["wget", "-T", "2", "-q", "-O-", "http://localhost:52365/api/local_raylet_healthz"]
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60   # head; worker group uses 20</pre>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">Where this generalizes</h2>
+  <div class="col">
+    <p>This project is small by design — one chatbot, one external API call per request. The same shape of problem shows up in any Ray/Kubernetes deployment that does meaningful work per request without burning local CPU to do it: calling a hosted LLM, calling a separate GPU inference server, waiting on a database, waiting on another service entirely.</p>
+    <p>Everything in this article so far is what we actually built and measured: a <code>RayCluster</code> CRD, the app started by hand with <code>serve run</code>, a shared IAM setup, and a mutable image tag rebuilt on every push. None of the four patterns below are things we implemented — they're what we'd reach for next, and we're labeling them that way on purpose so this doesn't read as a claim we did more than we did.</p>
+  </div>
+
+  <div class="card-grid wide">
+    <div class="card">
+      <div class="tag">Recommended, not implemented</div>
+      <h4>RayService, not RayCluster</h4>
+      <p>We deployed our app by hand (<code>serve run</code>, run manually every time, on top of a <code>RayCluster</code> CRD). <code>RayService</code> is KubeRay's production wrapper &mdash; it deploys the app automatically, re-applies it if the cluster restarts, and can do zero-downtime upgrades by standing up a new cluster and cutting traffic over once it's healthy. We did not use it here.</p>
+    </div>
+    <div class="card">
+      <div class="tag">Recommended, not implemented</div>
+      <h4>KubeRay and KEDA, together</h4>
+      <p>We only ran KubeRay; KEDA wasn't part of this project. They're not competitors, though &mdash; a real system might use KubeRay for Ray Serve apps and KEDA for everything else in the same cluster, like a queue-consumer pod reading off SQS that isn't a Ray workload at all.</p>
+    </div>
+    <div class="card">
+      <div class="tag">Recommended, not implemented</div>
+      <h4>Scoped identity per workload</h4>
+      <p>Our setup used broader IAM permissions than a hardened production system should. It's common to start with one shared role for every pod &mdash; simple, but means any compromised workload inherits every permission the role has. We'd narrow this before calling it production-ready.</p>
+    </div>
+    <div class="card">
+      <div class="tag">Recommended, not implemented</div>
+      <h4>Immutable image digests</h4>
+      <p>Our CI pipeline pushes a mutable tag on every build. A mutable tag means "what's running" can change without a deploy event; pinning to an immutable digest instead means rollback is a git revert, not guesswork about what was actually deployed. We haven't made that change yet.</p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="col">Questions we'd want answered, reading this cold</h2>
+
+  <div class="col">
+    <div class="faq-item">
+      <div class="faq-q">Does Ray make any individual request faster?</div>
+      <p>No. The network call to the external API takes exactly as long either way. Ray increases how many requests can be in flight <em>simultaneously</em>, which speeds up how fast a batch of requests finishes &mdash; not the latency of any one of them.</p>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Do I need Ray if my workload is CPU-bound?</div>
+      <p>Probably not, for the autoscaling benefit specifically. If CPU usage genuinely tracks load, plain HPA will scale it correctly. Ray earns its complexity for I/O-bound, bursty, or GPU-backed workloads &mdash; where CPU doesn't reflect real demand.</p>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Where is "node count" controlled? I don't see it in the Ray config.</div>
+      <p>Nowhere in the Ray or Kubernetes YAML &mdash; that's deliberate. Node count lives entirely in the EC2 node group's own scaling bounds (set in your infrastructure-as-code), executed by Cluster Autoscaler. The RayCluster spec only bounds pod count; pod count only bounds how many EC2 nodes might eventually be needed.</p>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">How do you know the autoscaling config is actually working, not just configured?</div>
+      <p>Don't trust the file alone. Generate real concurrent load (a script, not a browser tab &mdash; browsers cap concurrent connections to one server at roughly 6, regardless of what a UI's "concurrency" field says) and watch replica count, pod count, and node count live while it runs.</p>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Is this over-engineering for a small project?</div>
+      <p>For a chatbot that only ever sees light, steady traffic, probably. The value shows up specifically when load is bursty and the bottleneck is external &mdash; exactly the conditions where CPU-based scaling goes blind and a human has to notice the queue backing up before anything reacts.</p>
+    </div>
+  </div>
+
+  <div class="cta">
+    <h3>Try it yourself</h3>
+    <p style="color:var(--muted); font-size:14px">The full project &mdash; Dockerfile, RayCluster spec, load test script, and an interactive dashboard that shows all three layers scaling live &mdash; is open on GitHub.</p>
+    <a class="btn" href="https://github.com/Kalpana-Fission/ray-chatbot-eks" target="_blank" rel="noopener">View the repository &rarr;</a>
+    <p style="color:var(--muted); font-size:14px; margin-top:18px">Or explore the <a href="https://claude.ai/artifact/MRuVjwDbczpVtP1fj2DVHh" target="_blank" rel="noopener">animated architecture demo</a> for a visual, click-through version of the same scaling story.</p>
+  </div>
+
+  <footer>Built and load-tested on Amazon EKS &middot; Ray Serve &middot; KubeRay &middot; Cluster Autoscaler</footer>
+
+</article>
+
+<script>
+(function(){
+  "use strict";
+
+  function makeBoxes(containerId, n, cls){
+    var el = document.getElementById(containerId);
+    el.innerHTML = "";
+    for (var i = 0; i < n; i++){
+      var b = document.createElement("div");
+      b.className = "ls-box " + cls;
+      el.appendChild(b);
+    }
+  }
+  function reveal(containerId, upto){
+    var el = document.getElementById(containerId);
+    var boxes = el.children;
+    for (var i = 0; i < boxes.length; i++){
+      if (i < upto) boxes[i].classList.add("in");
+      else boxes[i].classList.remove("in");
+    }
+  }
+
+  var MAX_REPLICAS = 10, MAX_PODS = 6, MAX_NODES = 5;
+  makeBoxes("lsL1", MAX_REPLICAS, "replica");
+  makeBoxes("lsL2", MAX_PODS, "pod");
+  makeBoxes("lsL3", MAX_NODES, "node");
+  reveal("lsL1", 1); reveal("lsL2", 1); reveal("lsL3", 2);
+
+  function distribute(total, buckets){
+    if (buckets <= 0) return [];
+    var base = Math.floor(total / buckets), rem = total % buckets, arr = [];
+    for (var i = 0; i < buckets; i++) arr.push(base + (i < rem ? 1 : 0));
+    return arr;
+  }
+
+  function renderNest(replicas, pods, nodes){
+    var podsPerNode = distribute(pods, nodes);
+    var replicasPerPod = distribute(replicas, pods);
+    var podPtr = 0;
+    var html = "";
+    for (var ni = 0; ni < nodes; ni++){
+      var nPods = podsPerNode[ni];
+      var podsHtml = "";
+      for (var pi = 0; pi < nPods; pi++){
+        var rCount = replicasPerPod[podPtr] || 0;
+        podPtr++;
+        var dotsHtml = "";
+        for (var ri = 0; ri < rCount; ri++) dotsHtml += '<span class="ls-replica-dot" title="Ray Serve replica"></span>';
+        podsHtml += '<div class="ls-pod-box"><div class="ls-pod-label">pod &middot; ' + rCount + ' replica' + (rCount === 1 ? "" : "s") + '</div><div class="ls-replica-row">' + dotsHtml + '</div></div>';
+      }
+      html += '<div class="ls-node-box"><div class="ls-node-label">EC2 node ' + (ni + 1) + ' &middot; ' + nPods + ' pod' + (nPods === 1 ? "" : "s") + '</div><div class="ls-pod-row">' + podsHtml + '</div></div>';
+    }
+    document.getElementById("lsNest").innerHTML = html;
+  }
+
+  // sequence: [delayMs, replicas, pods, nodes, cpuPct, status, l1trig, l2trig, l3trig]
+  var steps = [
+    [0,    1, 1, 2, 3, "Idle — 1 replica, 1 pod, 2 nodes",
+      "Ongoing requests per replica > 2 → add a replica",
+      "Waiting for Layer 1 to exceed current pod capacity",
+      "Waiting for a pod to go Pending"],
+    [600,  4, 1, 2, 6, "500 requests arrive, concurrency 70 — ongoing requests climbing",
+      "6.2 ongoing / 1 replica → upscaling to 4",
+      "Still fits in 1 pod",
+      "No pressure yet"],
+    [1400, 8, 2, 2, 9, "Layer 1 still climbing — Ray autoscaler sees pending resource demand",
+      "9.3 ongoing / 4 replicas → upscaling to 8",
+      "Ray requests more capacity — KubeRay reconciles by adding a 2nd worker pod",
+      "2 pods fit on 2 existing nodes, no new node yet"],
+    [2200, 10, 4, 2, 12, "Replicas hit the configured max of 10",
+      "Hit max_replicas: 10 — ceiling reached",
+      "Ray still needs more capacity — KubeRay reconciles 2 more pods",
+      "4 pods still fit — 2 nodes have just enough room"],
+    [3000, 10, 6, 2, 14, "New pods can't be scheduled — Insufficient cpu",
+      "Holding at 10 replicas (max)",
+      "6 pods requested, some go Pending — no room on 2 nodes",
+      "Cluster Autoscaler sees Pending pods → triggers scale-up"],
+    [3900, 10, 6, 5, 8, "Cluster Autoscaler launches new EC2 nodes",
+      "Holding at 10 replicas (max)",
+      "All 6 pods now have room to schedule",
+      "2 → 5 nodes — new instances joining (≈2–4 min in reality), CPU per node drops as the same work spreads wider"],
+    [4800, 10, 6, 5, 7, "Load test finishes — 500/500 requests succeeded, 0 errors",
+      "10 replicas handling load, evenly spread",
+      "6 pods Running across 5 nodes",
+      "Scale-down cooldown begins — will shrink back once idle"],
+    [6400, 1, 2, 5, 3, "Traffic stops — Ray scales replicas down almost immediately",
+      "downscale_delay_s: 30 → back to min_replicas: 1 within seconds",
+      "KubeRay removes pods once their replicas are gone",
+      "Nodes stay up — Cluster Autoscaler waits out a longer cooldown before committing"],
+    [7600, 1, 1, 3, 3, "A few minutes later — idle nodes finally come down",
+      "Holding at 1 replica (min)",
+      "1 pod remains, right-sized for min_replicas",
+      "scale-down-unneeded-time elapses → 5 → 3 nodes, the rest were just sitting idle"],
+    [8800, 1, 1, 2, 3, "Back to steady state — same shape as before the test",
+      "Idle, ready for the next burst",
+      "1 pod Running",
+      "5 → 2 nodes — floor reached; this is where the cluster rests until load returns"]
+  ];
+
+  renderNest(1, 1, 2);
+  document.getElementById("lsCpu").textContent = "~3% CPU";
+
+  var running = false;
+  document.getElementById("lsRunBtn").addEventListener("click", function(){
+    if (running) return;
+    running = true;
+    var btn = document.getElementById("lsRunBtn");
+    btn.disabled = true;
+    btn.textContent = "Running…";
+
+    steps.forEach(function(step, idx){
+      setTimeout(function(){
+        var replicas = step[1], pods = step[2], nodes = step[3], cpu = step[4];
+        document.getElementById("lsL1count").textContent = replicas;
+        document.getElementById("lsL2count").textContent = pods;
+        document.getElementById("lsL3count").textContent = nodes;
+        document.getElementById("lsStatus").textContent = step[5];
+        document.getElementById("lsL1trigger").textContent = step[6];
+        document.getElementById("lsL2trigger").textContent = step[7];
+        document.getElementById("lsL3trigger").textContent = step[8];
+        reveal("lsL1", replicas);
+        reveal("lsL2", pods);
+        reveal("lsL3", nodes);
+        renderNest(replicas, pods, nodes);
+        document.getElementById("lsCpu").textContent = "~" + cpu + "% CPU — still nowhere near a 70% HPA threshold";
+
+        if (idx === steps.length - 1){
+          running = false;
+          btn.disabled = false;
+          btn.textContent = "Run again";
+        }
+      }, step[0]);
+    });
+  });
+})();
+
+(function(){
+  "use strict";
+
+  var CD_USERS = 20;
+  var CAPACITY_PER_REPLICA = 2;     // requests a replica juggles before it's "overloaded"
+  var REPLICAS_PER_POD = 3;         // pod gets a new pod once it holds this many replicas
+  var PODS_PER_NODE = 1;            // node gets a new node once it holds this many RUNNING pods
+  var MAX_PODS = 3;
+  var MAX_NODES = 4;
+  var MAX_REPLICAS = REPLICAS_PER_POD * MAX_PODS;
+  var MIN_DELAY = 1200, MAX_DELAY = 3000; // simulated NVIDIA response time
+  var NODE_JOIN_DELAY = 2400;             // simulated "new EC2 instance joining" time
+
+  var REPLICA_IDLE_MS = 4000;   // fast — mirrors downscale_delay_s being short
+  var NODE_IDLE_MS = 11000;     // slow on purpose — mirrors Cluster Autoscaler's longer cooldown
+
+  var pods, nodes, backlog, reqCounter, llmCalls, responses, spinnerTimer, lastActivity;
+
+  function touchActivity(){ lastActivity = Date.now(); }
+
+  function resetState(){
+    nodes = [{ id: 1, status: "ready" }, { id: 2, status: "ready" }];
+    pods = [{ id: 1, replicas: [{ id: 1, ongoing: 0 }], note: "", status: "running", nodeId: 1 }];
+    backlog = [];
+    reqCounter = 0;
+    llmCalls = 0;
+    responses = 0;
+    touchActivity();
+  }
+
+  function readyNodeCount(){
+    return nodes.filter(function(n){ return n.status === "ready"; }).length;
+  }
+  function nodePodCount(nodeId){
+    return pods.filter(function(p){ return p.status === "running" && p.nodeId === nodeId; }).length;
+  }
+  function totalReplicas(){
+    var n = 0;
+    for (var i = 0; i < pods.length; i++) if (pods[i].status === "running") n += pods[i].replicas.length;
+    return n;
+  }
+  function totalOngoing(){
+    var n = 0;
+    for (var i = 0; i < pods.length; i++)
+      for (var j = 0; j < pods[i].replicas.length; j++) n += pods[i].replicas[j].ongoing;
+    return n;
+  }
+
+  function findFreeReplica(){
+    for (var i = 0; i < pods.length; i++){
+      if (pods[i].status !== "running") continue;
+      for (var j = 0; j < pods[i].replicas.length; j++)
+        if (pods[i].replicas[j].ongoing < CAPACITY_PER_REPLICA) return pods[i].replicas[j];
+    }
+    return null;
+  }
+
+  function scaleNodes(){
+    if (nodes.length >= MAX_NODES) return;
+    var newNode = { id: nodes.length + 1, status: "joining" };
+    nodes.push(newNode);
+    setTimeout(function(){
+      newNode.status = "ready";
+      // any pod still Pending for lack of node room can now schedule, onto the node that now has room
+      pods.forEach(function(p){
+        if (p.status === "pending" && nodePodCount(newNode.id) < PODS_PER_NODE){
+          p.status = "running";
+          p.nodeId = newNode.id;
+        }
+      });
+      render();
+      assignBacklog();
+      maybeScaleUp();
+    }, NODE_JOIN_DELAY);
+  }
+
+  function maybeScaleUp(){
+    var demand = totalOngoing() + backlog.length;
+    var capacity = totalReplicas() * CAPACITY_PER_REPLICA;
+    if (demand <= capacity || totalReplicas() >= MAX_REPLICAS) return;
+
+    var target = null;
+    for (var i = 0; i < pods.length; i++){
+      if (pods[i].status === "running" && pods[i].replicas.length < REPLICAS_PER_POD){ target = pods[i]; break; }
+    }
+    if (!target){
+      if (pods.length >= MAX_PODS) return;
+      var hostNode = null;
+      for (var ni = 0; ni < nodes.length; ni++){
+        if (nodes[ni].status === "ready" && nodePodCount(nodes[ni].id) < PODS_PER_NODE){ hostNode = nodes[ni]; break; }
+      }
+      target = {
+        id: pods.length + 1, replicas: [], note: "KubeRay added this pod",
+        status: hostNode ? "running" : "pending", nodeId: hostNode ? hostNode.id : null
+      };
+      pods.push(target);
+      if (!hostNode) scaleNodes();
+    }
+    var newId = 0;
+    pods.forEach(function(p){ p.replicas.forEach(function(r){ if (r.id > newId) newId = r.id; }); });
+    target.replicas.push({ id: newId + 1, ongoing: 0, fresh: true });
+    setTimeout(function(){ target.replicas.forEach(function(r){ r.fresh = false; }); render(); }, 2500);
+  }
+
+  function downscaleTick(){
+    if (backlog.length > 0 || totalOngoing() > 0) return; // only wind down once genuinely idle
+    var idleMs = Date.now() - lastActivity;
+    var changed = false;
+
+    if (idleMs > REPLICA_IDLE_MS && totalReplicas() > 1){
+      for (var i = pods.length - 1; i >= 0; i--){
+        var p = pods[i];
+        if (p.status === "running" && p.replicas.length > 0 && totalReplicas() > 1){
+          p.replicas.pop();
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    var before = pods.length;
+    pods = pods.filter(function(p){ return !(p.status === "running" && p.replicas.length === 0 && p.id !== 1); });
+    if (pods.length !== before) changed = true;
+
+    if (idleMs > NODE_IDLE_MS && readyNodeCount() > 2){
+      for (var ni = nodes.length - 1; ni >= 0; ni--){
+        if (nodes[ni].status === "ready" && nodePodCount(nodes[ni].id) === 0){
+          nodes.splice(ni, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    if (changed) render();
+  }
+
+  function assignBacklog(){
+    var assigned = false;
+    while (backlog.length){
+      var r = findFreeReplica();
+      if (!r) break;
+      var req = backlog.shift();
+      r.ongoing++;
+      llmCalls++;
+      assigned = true;
+      pulseSpinner();
+      (function(replicaRef){
+        var delay = MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY);
+        setTimeout(function(){
+          replicaRef.ongoing = Math.max(0, replicaRef.ongoing - 1);
+          responses++;
+          touchActivity();
+          render();
+          assignBacklog();
+        }, delay);
+      })(r);
+    }
+    return assigned;
+  }
+
+  function pulseSpinner(){
+    var s = document.getElementById("cdSpinner");
+    if (!s) return;
+    s.classList.add("cd-active");
+    clearTimeout(spinnerTimer);
+    spinnerTimer = setTimeout(function(){ s.classList.remove("cd-active"); }, 900);
+  }
+
+  function sendRequest(userId, btnEl){
+    backlog.push({ id: ++reqCounter, user: userId });
+    touchActivity();
+    if (btnEl){
+      btnEl.classList.add("cd-sent");
+      setTimeout(function(){ btnEl.classList.remove("cd-sent"); }, 500);
+    }
+    assignBacklog();
+    maybeScaleUp();
+    render();
+  }
+
+  function render(){
+    var backlogEl = document.getElementById("cdBacklog");
+    if (!backlogEl) return;
+    if (backlog.length === 0){
+      backlogEl.innerHTML = '<div class="cd-empty">Nothing waiting</div>';
+    } else {
+      backlogEl.innerHTML = backlog.map(function(req){
+        return '<div class="cd-backlog-item">Request ' + req.id + ' from U' + req.user + ' &mdash; waiting</div>';
+      }).join("");
+    }
+    document.getElementById("cdBacklogCount").textContent = "(" + backlog.length + " waiting)";
+
+    var nodesEl = document.getElementById("cdNodes");
+    nodesEl.innerHTML = nodes.map(function(n){
+      var joining = n.status === "joining";
+      return '<div class="cd-node' + (joining ? " cd-joining" : "") + '">EC2 node ' + n.id +
+        '<div class="cd-node-sub">' + (joining ? "joining…" : "ready") + '</div></div>';
+    }).join("");
+
+    var podsEl = document.getElementById("cdPods");
+    podsEl.innerHTML = pods.map(function(p){
+      var pending = p.status === "pending";
+      var replicasHtml = p.replicas.map(function(r){
+        return '<div class="cd-replica">' +
+          '<div><div class="cd-replica-label">Replica ' + r.id + (r.fresh ? ' <span class="cd-pod-flag">new</span>' : '') + '</div>' +
+          '<div class="cd-replica-sub">Chatbot actor &middot; 0.25 CPU</div></div>' +
+          '<div class="cd-replica-load">' + r.ongoing + '/' + CAPACITY_PER_REPLICA + '</div></div>';
+      }).join("");
+      var flag = pending ? "Pending — waiting on a node" : p.note;
+      return '<div class="cd-pod' + (pending ? " cd-pending" : "") + '"><div class="cd-pod-head"><span>Ray worker pod ' + p.id + '</span>' +
+        (flag ? '<span class="cd-pod-flag">' + flag + '</span>' : '') + '</div>' +
+        '<div class="cd-replicas">' + replicasHtml + '</div></div>';
+    }).join("");
+
+    document.getElementById("cdCalls").textContent = llmCalls;
+    document.getElementById("cdResp").textContent = responses;
+  }
+
+  function buildUsers(){
+    var el = document.getElementById("cdUsers");
+    var html = "";
+    for (var i = 1; i <= CD_USERS; i++){
+      html += '<button class="cd-user" data-user="' + i + '" type="button">U' + i + '</button>';
+    }
+    el.innerHTML = html;
+    el.addEventListener("click", function(e){
+      var btn = e.target.closest(".cd-user");
+      if (!btn) return;
+      sendRequest(parseInt(btn.getAttribute("data-user"), 10), btn);
+    });
+  }
+
+  function runAutoDemo(){
+    var startBtn = document.getElementById("cdStart");
+    startBtn.disabled = true;
+    startBtn.textContent = "Running end to end…";
+    resetState();
+    render();
+
+    var BURST = 24; // enough demand to push replicas → pods → nodes, like our real 500-req/concurrency-70 run
+    for (var i = 0; i < BURST; i++){
+      (function(i){
+        setTimeout(function(){
+          var userId = (i % CD_USERS) + 1;
+          var btn = document.querySelector('.cd-user[data-user="' + userId + '"]');
+          sendRequest(userId, btn);
+        }, i * 180);
+      })(i);
+    }
+
+    setTimeout(function(){
+      startBtn.disabled = false;
+      startBtn.textContent = "Start demo (end to end)";
+    }, BURST * 180 + NODE_JOIN_DELAY + MAX_DELAY + 500);
+  }
+
+  function init(){
+    if (!document.getElementById("cdUsers")) return;
+    resetState();
+    buildUsers();
+    render();
+    document.getElementById("cdReset").addEventListener("click", function(){
+      resetState();
+      render();
+    });
+    document.getElementById("cdStart").addEventListener("click", runAutoDemo);
+    setInterval(downscaleTick, 1000);
+    setInterval(function(){
+      var note = document.getElementById("cdDownscaleNote");
+      if (!note) return;
+      if (backlog.length > 0 || totalOngoing() > 0){
+        note.textContent = "Active — scale-down pauses while there's real or queued demand";
+      } else {
+        var idleS = Math.max(0, Math.floor((Date.now() - lastActivity) / 1000));
+        note.textContent = "Idle " + idleS + "s — replicas scale down after ~" + (REPLICA_IDLE_MS / 1000) +
+          "s, nodes after ~" + (NODE_IDLE_MS / 1000) + "s (same asymmetry as the real cluster)";
+      }
+    }, 500);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
